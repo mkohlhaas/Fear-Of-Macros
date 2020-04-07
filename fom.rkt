@@ -1,6 +1,7 @@
 #lang racket
 
 (require (for-syntax racket/match racket/string racket/syntax))
+(require racket/stxparam racket/splicing)
 
 (define-syntax foo
   (λ(stx)
@@ -228,3 +229,20 @@
        (with-syntax ([hash-table (car ids)]
                      [keys       (cdr ids)])
          #'(hash-refs hash-table 'keys default)))]))
+
+(define-syntax-rule (aif condition true-expr false-expr)
+  (let ([it condition])
+    (if it
+        true-expr
+        false-expr)))
+
+(define-syntax-parameter it
+  (lambda (stx)
+    (raise-syntax-error (syntax-e stx) "can only be used inside aif")))
+
+(define-syntax-rule (aif1 condition true-expr false-expr)
+  (let ([tmp condition])
+    (if tmp
+        (syntax-parameterize ([it (make-rename-transformer #'tmp)])
+          true-expr)
+        false-expr)))
