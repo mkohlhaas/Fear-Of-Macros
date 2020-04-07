@@ -246,3 +246,7 @@
         (syntax-parameterize ([it (make-rename-transformer #'tmp)])
           true-expr)
         false-expr)))
+
+(splicing-let ([x 0])
+  (define (get-x)
+    x))
