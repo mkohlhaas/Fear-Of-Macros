@@ -3,52 +3,173 @@
 (require (for-syntax racket/match racket/string racket/syntax))
 (require racket/stxparam racket/splicing)
 
+; -------------------------------------------------------------------------------
+; 3.1 What is a syntax transformer?
+
+; A "transformer" is a function that changes a syntax object. Syntax object in, (changed) syntax object out.
+; Using define-syntax tells the Racket compiler, "Whenever you encounter a chunk of syntax starting with foo, please give
+; it to my transformer function, and replace it with the syntax I give back to you."
+; The compiler always deals with syntax objects.
 (define-syntax foo
   (λ(stx)
     (syntax "I am foo")))
 
+; repl
+; (syntax foo)
+; (foo)
+; foo
+
 (define-syntax (also-foo stx)
   (syntax "I am also foo"))
 
+; repl
+; (also-foo)
+
+; Shorthand for syntax is #'.
 (define-syntax (quoted-foo stx)
   #'"I am also foo, using #' instead of syntax")
 
+; repl
+; (quoted-foo)
+
 (define-syntax (say-hi stx)
   #'(displayln "hi"))
+
+; repl
+; (say-hi)
+
+; -------------------------------------------------------------------------------
+; 3.2 What’s the input?
 
 (define-syntax (show-me stx)
   (print stx)
   #'(void))
 
+; repl
+; (show-me '(+ 1 2))
+; (void 1 2 3 "123" 'whatever)
+
 (define stx #'(if x (list "true") #f))
 (define stx1 #'(reverse-me "backwards" "am" "i" values))
 (define stx2 #'(our-if-v2 #t "true" "false"))
 
+; repl
+; stx
+; stx1
+; stx2
+; (syntax-source stx)
+; (syntax-line stx)
+; (syntax-column stx)
+; Converts syntax object completely/recursively into S-expression.
+; (syntax->datum stx)
+; syntax-e and syntax-list go only one level deep. The content of the ordinary list are syntax objects.
+; (syntax-e stx)
+; (syntax->list #'(1 (+ 3 4) 5))
+; (syntax-e #'(1 (+ 3 4) 5))
+; Here is the difference between syntax-e and syntax->list.
+; (syntax-e #'a)
+; (syntax->list #'a)
+
+; -------------------------------------------------------------------------------
+; 3.3 Actually transforming the input
+
+; Now let's actually change the input.
 (define-syntax (reverse-me stx)
-  ;(print stx)
-  ;(printf "\n")
+  (print stx)
+  (printf "\n")
   (datum->syntax stx (reverse (cdr (syntax->datum stx)))))
+;                                               ^^^ = (reverse-me stx) !!!
+
+; repl
+; (reverse-me "backwards" "am" "i" values)
+; (values "i" "am" "backwards")
+
+; -------------------------------------------------------------------------------
+; 3.4 Compile time vs. run time
 
 (define-syntax (foo1 stx)
   (make-pipe) ;Ce n'est pas le temps d'exécution
   #'(void))
 
-(define-syntax (our-if-v2 stx)
-  (define xs (syntax->list stx))
-  (datum->syntax stx `(cond [,(cadr xs) ,(caddr xs)]
-                            [else ,(cadddr xs)])))
+; repl
+; make-pipe won't be called
+; (foo1)
+
+(define (our-if condition true-expr false-expr)
+  (cond [condition true-expr]
+        [else false-expr]))
+
+; repl
+#;
+(our-if #t
+        "true"
+        "false")
 
 (define (display-and-return x)
   (displayln x)
   x)
 
+; repl
+; Racket has strict argument evaluation. All expressions are evaluated.
+#;
+(our-if #t
+        (display-and-return "true")
+        (display-and-return "false"))
+
+(define-syntax (our-if-v2 stx)
+  (define xs (syntax->list stx))
+  ; Using quasiquotation.
+  (datum->syntax stx `(cond [,(cadr xs) ,(caddr xs)]
+                            [else ,(cadddr xs)])))
+
+; repl
+; The content of the quasiquotations can/will be syntax objects.
+; (define xs (syntax->list stx))
+; `(cond [,(cadr xs) ,(caddr xs)] [else ,(cadddr xs)])
+
+; repl
+#;#;
+(our-if-v2 #t
+           (display-and-return "true")
+           (display-and-return "false"))
+
+(our-if-v2 #f
+           (display-and-return "true")
+           (display-and-return "false"))
+
+; Let's use pattern matching (instead of cadr, caddr, cadddr and the like).
 (define-syntax (our-if-using-match stx)
   (match (syntax->list stx)
     [(list _ condition true-expr false-expr)
      (datum->syntax stx `(cond [,condition ,true-expr]
                                [else ,false-expr]))]))
 
-; supply a "template", which uses variables from the pattern.
+; repl
+; (our-if-using-match #t "true" "false")
+
+; -------------------------------------------------------------------------------
+; 3.5 begin-for-syntax
+
+; For creating helper functions at compile time use begin-for-syntay or define-for-syntax in simple cases.
+#;#;
+(begin-for-syntax
+ (define (my-helper-function ....)
+   ....))
+(define-syntax (macro-using-my-helper-function stx)
+  (my-helper-function ....)
+  ....)
+
+#;#;
+(define-for-syntax (my-helper-function ....)
+  ....)
+(define-syntax (macro-using-my-helper-function stx)
+  (my-helper-function ....)
+  ....)
+
+; -------------------------------------------------------------------------------
+; 4 Pattern matching: syntax-case and syntax-rules
+
+; Supply a "template", which uses variables from the pattern.
 (define-syntax (our-if-using-syntax-case stx)
   (syntax-case stx ()
     [(_ condition true-expr false-expr)
@@ -236,6 +357,8 @@
         true-expr
         false-expr)))
 
+; Using syntax parameter to circumvent macro hygiene.
+; Use syntax parameters using define-syntax-parameter and syntax-parameterize
 (define-syntax-parameter it
   (lambda (stx)
     (raise-syntax-error (syntax-e stx) "can only be used inside aif")))
@@ -250,3 +373,8 @@
 (splicing-let ([x 0])
   (define (get-x)
     x))
+
+; The macro system you will mostly want to use for production-quality macros is called syntax-parse
+
+; -------------------------------------------------------------------------------
+; List of used syntax functions.
