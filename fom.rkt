@@ -150,7 +150,7 @@
 ; -------------------------------------------------------------------------------
 ; 3.5 begin-for-syntax
 
-; For creating helper functions at compile time use begin-for-syntay or define-for-syntax in simple cases.
+; For creating helper functions at compile time use begin-for-syntax or define-for-syntax in simple cases.
 #;#;
 (begin-for-syntax
   (define (my-helper-function ....)
@@ -493,4 +493,24 @@
 ; The macro system you will mostly want to use for production-quality macros is called syntax-parse
 
 ; -------------------------------------------------------------------------------
-; List of used syntax functions.
+; List of used syntax functions:
+
+; define-syntax
+; syntax
+; #'
+; syntax-source
+; syntax-line
+; syntax-column
+; syntax->datum
+; syntax-e
+; syntax->list
+; datum->syntax
+; quasiquotation (https://bit.ly/2UXu1o2): `(... ,thingy ... ,@listy ...), #`(... #,thingy ... #,@listy)
+; begin-for-syntax
+; define-for-syntax
+; syntax-case
+; define-syntax-rule
+; with-syntax
+; with-syntax*
+; define-syntax-parameter
+; syntax-parameterize
