@@ -1,7 +1,7 @@
 #lang racket
 
 (require (for-syntax racket/match racket/string racket/syntax))
-(require racket/stxparam racket/splicing)
+(require racket/stxparam racket/splicing rackunit)
 
 ; -------------------------------------------------------------------------------
 ; 3.1 What is a syntax transformer?
@@ -153,8 +153,8 @@
 ; For creating helper functions at compile time use begin-for-syntay or define-for-syntax in simple cases.
 #;#;
 (begin-for-syntax
- (define (my-helper-function ....)
-   ....))
+  (define (my-helper-function ....)
+    ....))
 (define-syntax (macro-using-my-helper-function stx)
   (my-helper-function ....)
   ....)
@@ -176,11 +176,14 @@
      #'(cond [condition true-expr]
              [else false-expr])]))
 
-; define-syntax-rule is a shorthand for simple pattern-matching cases.
+; define-syntax-rule is a shorthand for simple/single pattern-matching case.
 ; define-syntax-rule expands to syntax-case.
 (define-syntax-rule (our-if-using-syntax-rule condition true-expr false-expr)
   (cond [condition true-expr]
         [else false-expr]))
+
+; -------------------------------------------------------------------------------
+; 4.1 Pattern variable vs. template—fight!
 
 #;
 (define-syntax (hyphen-define/wrong1 stx)
@@ -198,6 +201,10 @@
        #'(define (name args ...)
            body0 body ...))]))
 
+; repl
+; (hyphen-define/wrong1.1 foo bar () #t)
+; (foo-bar)
+
 (define-syntax (hyphen-define/wrong1.2 stx)
   (syntax-case stx ()
     [(_ a b (args ...) body0 body ...)
@@ -206,6 +213,9 @@
        ()
        [name #'(define (name args ...)
                  body0 body ...)])]))
+; repl
+; (hyphen-define/wrong1.2 foo bar () #t)
+; (foo-bar)
 
 (define-syntax (hyphen-define/ok1 stx)
   (syntax-case stx ()
@@ -217,10 +227,29 @@
        ()
        [name #'(define (name args ...)
                  body0 body ...)])]))
+; repl
+; (hyphen-define/ok1 foo bar () #t)
+; (foo-bar)
+
+(define-syntax (hyphen-define/wrong2 stx)
+  (syntax-case stx ()
+    [(_ a b (args ...) body0 body ...)
+     (syntax-case (datum->syntax #'a (string->symbol (format "~a-~a" 'a 'b)))
+       ()
+       [name #'(define (name args ...)
+                 body0 body ...)])]))
+
+; repl
+; (hyphen-define/wrong2 foo bar () #t)
+; (foo-bar)
+
+; -------------------------------------------------------------------------------
+; 4.1.1 with-syntax
 
 ; with-syntax is simply syntax-case rearranged:
-;  (syntax-case <syntax> () [<pattern> <body>])
-;  (with-syntax ([<pattern> <syntax>]) <body>)
+; (syntax-case <syntax> () [<pattern> <body>])
+; (with-syntax ([<pattern> <syntax>]) <body>)
+
 (define-syntax (hyphen-define/ok2 stx)
   (syntax-case stx ()
     [(_ a b (args ...) body0 body ...)
@@ -230,6 +259,12 @@
                                                                 (syntax->datum #'b))))])
        #'(define (name args ...)
            body0 body ...))]))
+; repl
+; (hyphen-define/ok2 foo bar () #t)
+; (foo-bar)
+
+; -------------------------------------------------------------------------------
+; 4.1.2 with-syntax*
 
 (define-syntax (foo2 stx)
   (syntax-case stx ()
@@ -238,6 +273,9 @@
                     [c #'b])
        #'c)]))
 
+; -------------------------------------------------------------------------------
+; 4.1.3 format-id
+
 ; using format-id to produce an identifier
 (define-syntax (hyphen-define/ok3 stx)
   (syntax-case stx ()
@@ -245,6 +283,9 @@
      (with-syntax ([name (format-id #'a "~a-~a" #'a #'b)])
        #'(define (name args ...)
            body0 body ...))]))
+
+; -------------------------------------------------------------------------------
+; 4.1.4 Another example
 
 (define-syntax (hyphen-define* stx)
   (syntax-case stx ()
@@ -259,6 +300,13 @@
          #'(define (name args ...)
              body0 body ...)))]))
 
+; repl
+; (hyphen-define* (foo bar baz) (v) (* 2 v))
+; (foo-bar-baz 50)
+
+; -------------------------------------------------------------------------------
+; 4.2 Making our own struct
+
 (define-syntax (our-struct stx)
   (syntax-case stx ()
     [(_ id (fields ...))
@@ -272,6 +320,7 @@
              (and (vector? v)
                   (eq? (vector-ref v 0) 'id)))
            ; Define an accessor for each field.
+           ; Note: #,@ (!!!)
            #,@(for/list ([x (syntax->list #'(fields ...))]
                          [n (in-naturals 1)])
                 (with-syntax ([acc-id (format-id #'id "~a-~a" #'id x)]
@@ -281,6 +330,17 @@
                         (error 'acc-id "~a is not a ~a struct" v 'id))
                       (vector-ref v ix))))))]))
 
+; repl
+(our-struct foo3 (a b))
+(define s (foo3 1 2))
+(check-true (foo3? s))
+(check-false (foo3? 1))
+(check-equal? (foo3-a s) 1)
+(check-equal? (foo3-b s) 2)
+(check-exn exn:fail? (lambda () (foo3-a "furble")))
+; (our-struct "blah" ("blah" "blah"))
+
+; add a guard/fender expression to our clause
 (define-syntax (our-struct1 stx)
   (syntax-case stx ()
     [(_ id (fields ...))
@@ -307,6 +367,15 @@
                       (unless (pred-id v)
                         (error 'acc-id "~a is not a ~a struct" v 'id))
                       (vector-ref v ix))))))]))
+; Now the same misuse gives a better error message:
+; (our-struct1 "blah" ("blah" "blah"))
+
+; -------------------------------------------------------------------------------
+; 4.3 Using dot notation for nested hash lookups
+
+; repl
+(define js (hasheq 'a (hasheq 'b (hasheq 'c "value"))))
+; (hash-ref (hash-ref (hash-ref js 'a) 'b) 'c)
 
 (define/contract (hash-refs h ks [def #f])
   ((hash? (listof any/c)) (any/c) . ->* . any)
@@ -315,6 +384,9 @@
     (for/fold ([h h])
               ([k (in-list ks)])
       (hash-ref h k))))
+
+; repl
+; (hash-refs js '(a b c))
 
 (define-syntax (hash.refs stx)
   (syntax-case stx ()
@@ -328,7 +400,12 @@
        (with-syntax ([hash-table (car ids)]
                      [keys       (cdr ids)])
          #'(hash-refs hash-table 'keys default)))]))
+; repl
+; (hash.refs js.a.b.c)
+; (hash.refs js.blah)
+; (hash.refs js.blah 'does-not-exist)
 
+; give helpful messages
 (define-syntax (hash.refs1 stx)
   (syntax-case stx ()
     ; Check for no args at all
@@ -351,11 +428,23 @@
                      [keys       (cdr ids)])
          #'(hash-refs hash-table 'keys default)))]))
 
+; repl
+; (hash.refs1)
+; (hash.refs1 0)
+; (hash.refs1 js)
+; (hash.refs1 js.)
+
+; -------------------------------------------------------------------------------
+; 5 Syntax parameters
+; See www.schemeworkshop.org/2011/papers/Barzilay2011.pdf
+
 (define-syntax-rule (aif condition true-expr false-expr)
   (let ([it condition])
     (if it
         true-expr
         false-expr)))
+; repl
+; (aif #t (displayln it) (void))
 
 ; Using syntax parameter to circumvent macro hygiene.
 ; Use syntax parameters using define-syntax-parameter and syntax-parameterize
@@ -370,9 +459,36 @@
           true-expr)
         false-expr)))
 
+; repl
+; (aif1 10 (displayln it) (void))
+; (aif1 #f (displayln it) (void))
+
+; -------------------------------------------------------------------------------
+; 6 What’s the point of splicing-let?
+
+; => let over lambda
 (splicing-let ([x 0])
   (define (get-x)
     x))
+
+; repl
+; (get-x)
+; x
+
+(splicing-let ([x 0])
+  (define (inc)
+    (set! x (+ x 1)))
+  (define (dec)
+    (set! x (- 1 x)))
+  (define (get)
+    x))
+
+; repl
+; (get)
+; (inc)
+; (get)
+; (dec)
+; (get)
 
 ; The macro system you will mostly want to use for production-quality macros is called syntax-parse
 
